@@ -188,12 +188,23 @@ enum hrtimer_restart mt_ptp_volt_timer_func(struct hrtimer *timer)
 
 int mt_ptp_volt_thread_handler(void *unused)
 {
+    static bool is_cpufreq_enabled = false;
     do
     {
         ktime_set(mt_ptp_volt_period_s, mt_ptp_volt_period_ns);
 
         wait_event_interruptible(mt_ptp_volt_timer_waiter, mt_ptp_volt_timer_flag != 0);
         mt_ptp_volt_timer_flag = 0;
+
+        /* Move cpufreq_enabled from interrupt connext to thread context. Because mt_cpufreq_enable_by_ptpod()
+         * in tank project will call __cpufreq_notify_transition() and it checks irq's status by
+         * BUG_ON(irqs_disabled()).
+         */
+        if (!is_cpufreq_enabled) {
+            mt_cpufreq_enable_by_ptpod(); // enable DVFS
+            mt_fh_popod_restore(); // enable frequency hopping (main PLL)
+            is_cpufreq_enabled = true;
+        }
 
         mt_cpufreq_voltage_set_by_ptpod(ptpod_pmic_volt, ptp_array_size);
 
